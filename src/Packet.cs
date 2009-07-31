@@ -199,11 +199,29 @@ namespace Gearman
 			this.size = _data.Length;
 		}
 		
-		public void setData(byte[] _data, int len)
+		public void setJobData(byte[] _data)
 		{
-			data = new MemoryStream(len);
-			data.Write(_data, 0, len);
-			this.size = len;
+			data = new MemoryStream(_data.Length);
+			bool done = false; 
+			bool sawhandle = false; 
+			int i = 0;
+			
+			for(i = 0; i < _data.Length && !done; i++)
+			{
+				if(_data[i] == 0)
+				{ 
+					if (!sawhandle) 
+					{
+						sawhandle = true;
+					} else { 
+						done = true;
+					}
+				}
+					
+				data.Write(_data, i, 1);
+			}
+			
+			this.size = i;
 		}
 		
 		public int length() 
@@ -235,14 +253,14 @@ namespace Gearman
 						string text = encoding.GetString(line);
 
 						string result = Regex.Replace(text, @"[^0-9a-zA-Z]", ".");
-						
-						for(int i = 0; i < data.Length && i < 16; i+=2) 
-						{
 							
+						for(int i = 0; i < data.Length && i < 16; i+=2) 
+						{		
 							output += String.Format("{0:x2}{1:x2} ", line[i], line[i+1]);
 						}
 						
-						Console.WriteLine("0x{0:x4}: {1} {2}",  count-16, output, result);
+						Console.WriteLine("0x{0:x4}: {1} {2}", count-16, output, result);
+						line = new byte[16];
 					} 
 					
 					line[count % 16] = Convert.ToByte(idata);
