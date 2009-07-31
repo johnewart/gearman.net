@@ -55,37 +55,56 @@ namespace Gearman
 		
 		public void workLoop()
 		{
-            ASCIIEncoding encoder = new ASCIIEncoding();
-			NetworkStream stream = conn.GetStream(); 
-			byte[] buf = new byte[1];
-			byte[] pdata;
-			int totalBytes = 0; 
-			int bytesRead;
-			bool done = false; 
-			int poffset = 0; 
-			int messagesize = 0; 
-			RequestPacket rp; 
+			Thread t = new Thread(new ThreadStart(run));
+			t.Start();
+		}
 		
+		public void run()
+		{
+ 
 			while(true)
 			{
-				// Grab job from server (if available)
-				Console.WriteLine("Checking for job...");
-				rp = new RequestPacket();
-				rp.Type = PacketType.GRAB_JOB;
-				conn.GetStream().Write(rp.ToByteArray(), 0, rp.length());
-				conn.GetStream().Flush();
+				nextPacket();
+				Console.WriteLine("Sleeping for 2 seconds");
+				Thread.Sleep(2000);
+			}
 				
-				pdata = new byte[1024];
-				
-     			while (!done) 
-				{
+		}
+
+		
+		private void nextPacket()
+		{
+			byte[] buf = new byte[1];
+			byte[] pdata = null, message = null;
+			int totalBytes = 0; 
+			int bytesRead;
+			bool pktDone = false; 
+			int poffset = 0; 
+			int messagesize = -1; 
+			
+			ASCIIEncoding encoder = new ASCIIEncoding();
+			NetworkStream stream = conn.GetStream(); 
+			
+			// Grab job from server (if available)
+			Console.WriteLine("Checking for job...");
+			RequestPacket rp = new RequestPacket();
+			rp.Type = PacketType.GRAB_JOB;
+			conn.GetStream().Write(rp.ToByteArray(), 0, rp.length());
+			conn.GetStream().Flush();
+			pktDone = false; 
+			message = new byte[65536];
+			messagesize = -1; 
+			totalBytes = 0; 
+			
+ 			while (!pktDone) 
+			{
+				try {
 					bytesRead = stream.Read(buf, 0, 1);
-					pdata[totalBytes++] = buf[0];
-					Console.Write(encoder.GetString(buf, 0, 1));
-					
+					message[totalBytes++] = buf[0];
+				
 					if(totalBytes == 12) { 
 						// Check byte count
-						byte[] sizebytes = pdata.Slice(8,12); 
+						byte[] sizebytes = message.Slice(8,12); 
 						
 						if(BitConverter.IsLittleEndian)
 							Array.Reverse(sizebytes);
@@ -94,18 +113,26 @@ namespace Gearman
 						Console.WriteLine("Packet is another {0} bytes", messagesize);
 					}
 					
-					if(messagesize == (totalBytes - 12))
+					if(messagesize != -1 && messagesize == (totalBytes - 12))
 					{
-						Console.WriteLine();
-						done = true;
+						Console.WriteLine("Done parsing message");
+						pktDone = true;
+						pdata = new byte[totalBytes+1];
+						Array.Copy(message, pdata, totalBytes);
 					} 
+
+				} catch (Exception e) { 
+					Console.WriteLine("Exception reading data: {0}", e.ToString());
 				}
-				
-				Console.WriteLine("Finished processing packet!");
+			} 
+			
+			Console.WriteLine("Finished processing packet!");
+			if(pdata != null) 
+			{
 				Packet p = new Packet(pdata);
 				p.Dump();
-				totalBytes = 0;
-
+			
+			
 				if (p.Type == PacketType.JOB_ASSIGN)
 				{
 					Console.WriteLine("Assigned job: {0}", p.JobHandle);
@@ -126,7 +153,22 @@ namespace Gearman
 								gotTask = true; 		
 							} else {
 								Console.WriteLine("Task: {0}", task); 
-								methodMap[task](payload.Slice(taskoffset, i));
+								byte[] result    = methodMap[task](payload.Slice(taskoffset, i));
+								byte[] jobhandle = ASCIIEncoding.UTF8.GetBytes(p.JobHandle);
+								
+								byte[] d = new byte[jobhandle.Length + result.Length + 1];
+								
+								Array.Copy(jobhandle, d, jobhandle.Length);
+								Array.Copy(result, 0, d, jobhandle.Length + 1, result.Length);
+							
+								RequestPacket workresult = new RequestPacket();
+								workresult.Type = PacketType.WORK_COMPLETE; 
+								workresult.setJobData(d);
+								
+								workresult.Dump();
+								
+								conn.GetStream().Write(workresult.ToByteArray(), 0, workresult.length());
+								conn.GetStream().Flush();
 							}
 							
 						}
@@ -140,11 +182,8 @@ namespace Gearman
 				{
 					Console.WriteLine("Nothing to do!");
 				} 
-				
-				Console.WriteLine("Sleeping for two seconds");
-				Thread.Sleep(2000);
-				done = false;
 			}
 		}
+		
 	}
 }
