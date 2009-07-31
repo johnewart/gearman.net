@@ -1,5 +1,6 @@
 using System;
 using Gearman; 
+using System.Text; 
 
 namespace GearmanDriver
 {
@@ -7,7 +8,18 @@ namespace GearmanDriver
 	{
 		private static byte[] wc(byte[] indata)
 		{
+			int words = 0;
 			byte[] outdata = new byte[1024];
+			
+			for(int i = 0; i < indata.Length; i++) 
+			{
+				if (indata[i] == 10)
+					words++;
+			}
+			
+			string result = String.Format("{0,4:D}", words);
+			outdata = ASCIIEncoding.UTF8.GetBytes(result);
+
 			
 			return outdata;
 		}
