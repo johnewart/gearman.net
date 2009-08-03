@@ -33,14 +33,10 @@ namespace Gearman
 		
 		public Packet getNextPacket()
 		{
-			byte[] buf = new byte[1];
 			int totalBytes = 0; 
-			int bytesRead;
 			bool pktDone = false; 
-			int poffset = 0; 
 			int messagesize = -1; 
 			
-			ASCIIEncoding encoder = new ASCIIEncoding();
 			NetworkStream stream = conn.GetStream(); 
 			
 			pktDone = false; 
@@ -53,7 +49,7 @@ namespace Gearman
  			while (!pktDone) 
 			{
 				try {
-					bytesRead = stream.Read(packet, totalBytes++, 1);
+					stream.Read(packet, totalBytes++, 1);
 					
 					// Header is comeplete, check for important data
 					if(totalBytes == 12) { 
