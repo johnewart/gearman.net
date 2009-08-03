@@ -1,17 +1,19 @@
 using System;
 using NUnit.Framework;
+using System.Text; 
+using Gearman;
 
-namespace Gearman
+namespace Gearman.Tests
 {
 
   	[TestFixture]
   	public class WorkerTest
   	{
-		private static byte[] wctest(byte[] indata)
+		private static byte[] wctest(Packet jobPacket, Connection c)
 		{
 			int words = 0;
 			byte[] outdata = new byte[1024];
-			
+			byte[] indata = jobPacket.Data;
 			for(int i = 0; i < indata.Length; i++) 
 			{
 				if (indata[i] == 10)
@@ -31,8 +33,9 @@ namespace Gearman
 			w.registerFunction("wc", wctest);
 			w.workLoop();
 			
-			Client c = new Client("localhost"); 
-			byte[] result = c.submitJob("wc", "zzz\nyyy\napple\nbaz\nfoo\nnarf\nquiddle\n");
+			Client c = new Client("localhost");
+			byte[] data = new ASCIIEncoding().GetBytes("zzz\nyyy\napple\nbaz\nfoo\nnarf\nquiddle\n");
+			byte[] result = c.submitJob("wc", data);
 		
 			Assert.IsNotNull(result);
 			
