@@ -5,8 +5,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gearman", "Gearman.csproj",
 EndProject
 Project("{9344bdbb-3e7f-41fc-a0dd-8665d75ee146}") = "Packages", "Packages.mdproj", "{11866579-702D-472A-8D2D-9DCF778E40FA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GearmanDriver", "GearmanDriver\GearmanDriver.csproj", "{FAAC48A0-46E6-4A9A-92A4-214AB16A9963}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,14 +19,10 @@ Global
 		{727D715F-70CD-408D-9DF4-BFFD66DB6FA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{727D715F-70CD-408D-9DF4-BFFD66DB6FA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{727D715F-70CD-408D-9DF4-BFFD66DB6FA1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{FAAC48A0-46E6-4A9A-92A4-214AB16A9963}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{FAAC48A0-46E6-4A9A-92A4-214AB16A9963}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{FAAC48A0-46E6-4A9A-92A4-214AB16A9963}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{FAAC48A0-46E6-4A9A-92A4-214AB16A9963}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(MonoDevelopProperties) = preSolution
 		version = 0.1
-		StartupItem = GearmanDriver\GearmanDriver.csproj
+		StartupItem = Gearman.csproj
 		Policies = $0
 		$0.TextStylePolicy = $1
 		$1.FileWidth = 120
