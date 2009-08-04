@@ -13,7 +13,7 @@ namespace Gearman
 		protected char[] magic;
 		protected PacketType type; 
 		protected int size;
-		protected MemoryStream data; 
+		protected byte[] data; 
 		protected string jobhandle; 
 		
 		public Packet() { }
@@ -22,7 +22,6 @@ namespace Gearman
 		{
 			byte[] typebytes = fromdata.Slice(4, 8);
 			byte[] sizebytes = fromdata.Slice(8, 12);
-			byte[] databytes = fromdata.Slice(12, fromdata.Length);
 			
 			if(BitConverter.IsLittleEndian)
 			{
@@ -31,117 +30,127 @@ namespace Gearman
 			}
 			
 			this.type = (PacketType)BitConverter.ToInt32(typebytes, 0);
-			this.size = BitConverter.ToInt32(sizebytes, 0);
+			this.size = BitConverter.ToInt32(sizebytes, 0);		
+			this.Data = fromdata.Slice(12, fromdata.Length);
+
+		}
+		
+		public int DataLength { 
+			set { 
+			}
 			
-			data = new MemoryStream(this.size);
-			bool haveJobHandle = false; 
-			jobhandle = "";
-			
-			foreach(byte b in databytes)
-			{
-				if(b != 0)
+			get { 
+				int result = this.size; 
+				
+				// If there's a job handle and we need to include it...
+				if (jobhandle != null && jobhandle != "") 
 				{
-					if(!haveJobHandle)
-					{
-						jobhandle += (char)b;
-					} else { 
-						data.WriteByte(b);	
-					}
-				} else { 
-					if (!haveJobHandle) { haveJobHandle = true; } else { data.WriteByte(b); }
+					result += jobhandle.Length + 1; 
 				}
+				
+				return result; 
 			}
 		}
 		
+		public int Length { 
+			set { 
+				this.size = value - 12; 
+			} 
+			
+			get { 
+				// Include header size...
+				return this.DataLength + 12; 
+			}
+		}
 		
 		public PacketType Type {
 			set { 
+				Console.WriteLine("Setting type!");
 				this.type = (PacketType)value;
-			} 
+			}
 			
 			get { 
 				return this.type;
 			}
 		}
 		
-		public byte[] RawData {
-			set {
+		public byte[] Data {
+			set {			
+				Console.WriteLine("Setting data");
+				switch(this.type) 
+				{ 
+					case PacketType.JOB_CREATED:
+					case PacketType.JOB_ASSIGN:
+					case PacketType.WORK_COMPLETE:
+					case PacketType.WORK_STATUS:
+					case PacketType.STATUS_RES:
+						bool sawhandle = false; 
+						int i = 0;
+						int handleoffset = 0; 
+					
+						if (this.JobHandle == null || this.JobHandle == "")
+						{
+							Console.WriteLine("No job handle, yet...");
+							for(i = 0; i < value.Length && !sawhandle; i++)
+							{
+								if(value[i] == 0)
+								{ 
+									this.jobhandle = new ASCIIEncoding().GetString(value.Slice(0, i));
+									handleoffset = i+1; 
+									sawhandle = true; 
+								}
+							}
+						} else { 
+							i = value.Length;
+						}	
+								
+						if (value[value.Length-1] != 0)
+						{	
+							// Pad the end with a zero-byte if there isn't one in the data
+							this.data = new byte[value.Length + 1];
+							Array.Copy(value, handleoffset, data, 0, value.Length - handleoffset);
+							this.size = (i  - handleoffset) + 1;
+
+						} else {
+							this.data = value.Slice(handleoffset, value.Length);
+							this.size = i - handleoffset;
+						}
+
+					
+						break;
+					default:	
+						this.data = value;
+						this.size = value.Length;
+						break;
+				}
 			}
 			
 			get { 
-				
-				if ( data != null ) 
-				{
-					int count = 0; 
-					
-					byte[] output = new byte[data.Length];
-					
-					data.Seek(0, SeekOrigin.Begin);
-				
-					try { 
-						while(count < data.Length)
-			            {
-			                output[count++] = Convert.ToByte(data.ReadByte());
-			            }
-					} catch ( Exception e) {
-						Console.WriteLine("Exception writing data: {0} ", e.ToString());
-					}
-
-					return output;
-
-				} else { 
-					return null; 
-				}
-			
-			}
-		}
-		
-		public string Data { 
-			set { 
-			}
-		
-			get { 
-				int idata = 0; 
-				int count = 0; 
-				string output = "";
-				data.Seek(0, SeekOrigin.Begin);
-				try { 
-					while(count < data.Length)
-		            {
-						idata = data.ReadByte();
-						
-		                output += (char)Convert.ToByte(idata);
-						count++;
-		            }
-					
-					return output;
-				
-				} catch (Exception e) { 
-					Console.WriteLine("Unable to parse data {0}: {1}", idata, e.ToString());
-					return "";
-				}
-				
+				return data;
 			}
 		}
 		
 		public string JobHandle { 
+			set {
+				Console.WriteLine("Setting job handle to {0}", value);
+				this.jobhandle = value;
+			}
+			
 			get { 
 				return jobhandle;
 			}
 		}
 		
 		unsafe public byte[] ToByteArray()
-		{	
-			int count = 12;
-			
-			byte[] output = new byte[this.length()];
+		{				
+			byte[] output = new byte[this.Length];
 
 			byte[] typebytes = BitConverter.GetBytes((int)this.Type);
 			byte[] sizebytes;
 			
 			if (this.data != null) 
 			{
-				sizebytes  = BitConverter.GetBytes((int)this.data.Length);
+				sizebytes  = BitConverter.GetBytes((int)this.DataLength);
 			} else { 
 				sizebytes = BitConverter.GetBytes(0);
 			}
@@ -169,18 +178,19 @@ namespace Gearman
 			output[10] = sizebytes[2];
 			output[11] = sizebytes[3];
 			
-			if ( data != null ) 
-			{
-				data.Seek(0, SeekOrigin.Begin);
+			int offset = 12; 
 			
-				try { 
-					while(count < this.length())
-		            {
-		                output[count++] = Convert.ToByte(data.ReadByte());
-		            }
-				} catch ( Exception e) {
-					Console.WriteLine("Exception writing data: {0} ", e.ToString());
-				}
+			if (jobhandle != null && jobhandle != "") 
+			{
+				byte[] jhbytes = new ASCIIEncoding().GetBytes(jobhandle);
+				Array.Copy(jhbytes, 0, output, 12, jhbytes.Length);
+				// Skip one byte, because jobhandle is null-byte terminated
+				offset += jhbytes.Length + 1;
+			}
+			
+			if (data != null) 
+			{
+				Array.Copy(data, 0, output, offset, data.Length);
 			}
 			
 			return output;
@@ -188,17 +198,18 @@ namespace Gearman
 		
 		public void setData(String _data)
 		{
-			data = new MemoryStream(_data.Length);
 			System.Text.ASCIIEncoding encoding=new System.Text.ASCIIEncoding();
-		
-			for(int i = 0; i < _data.Length; i++)
-			{
-    			data.WriteByte((byte)_data[i]);
-			}
-			
+			data = encoding.GetBytes(_data);
 			this.size = _data.Length;
 		}
 		
+		public void setData(byte[] _data)
+		{
+			this.data = _data; 
+			this.size = _data.Length; 
+		}
+		
+		/*
 		public void setJobData(byte[] _data)
 		{
 			data = new MemoryStream(_data.Length);
@@ -223,29 +234,24 @@ namespace Gearman
 			
 			this.size = i;
 		}
+		*/
 		
-		public int length() 
-		{
-			return size + 12;
-		}
+	
     		
 		public void Dump()
 		{
-			Console.WriteLine("Dumping packet with {0} bytes of data!", data.Length);
-			data.Seek(0, SeekOrigin.Begin);
+			Console.WriteLine("Dumping {0} packet with {1} bytes of data, total size: {2}!", type.ToString("g"), data.Length, this.DataLength);
 			
 			try { 
 				int count = 0;
 				int idata; 
-				int lineCnt = 0;
-				byte[] snarf; 
 				byte[] line = new byte[16]; 
 				
 				ASCIIEncoding encoding = new ASCIIEncoding( );
 
 				while(count < data.Length)
 	            {
-					idata = data.ReadByte();
+					idata = data[count];
 					
 					if ( (((count % 16) == 0) && count != 0) || (count == data.Length - 1) )
 					{
@@ -275,7 +281,7 @@ namespace Gearman
 			}
 		}
 		
-		public string ToString()
+		public override string ToString()
 		{
 			return "Packet:";
 		}
