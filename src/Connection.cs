@@ -8,6 +8,8 @@ namespace Gearman
 	public class Connection
 	{
 		private TcpClient conn; 
+		private string hostname;
+		private int port;
 		
 		public Connection()
 		{	}
@@ -15,6 +17,8 @@ namespace Gearman
 		public Connection(string hostname, int port) 
 		{
 			try { 
+				this.hostname = hostname; 
+				this.port = port; 
 				conn = new TcpClient(hostname, port);
 			} catch (Exception e) { 
 				Console.WriteLine("Error initializing connection to job server: " + e.ToString());
@@ -29,6 +33,11 @@ namespace Gearman
 			} catch (Exception e) {
 				Console.WriteLine("Unable to send packet: {0}", e.ToString());
 			}
+		}
+		
+		public override String ToString()
+		{
+			return String.Format("{0}:{1}", this.hostname, this.port);
 		}
 		
 		public Packet getNextPacket()

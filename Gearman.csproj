@@ -75,5 +75,6 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Include="docs\protocol.txt" />
+    <None Include="LICENSE.txt" />
   </ItemGroup>
 </Project>

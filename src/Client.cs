@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Configuration;
 using System.Net;
@@ -11,6 +12,9 @@ namespace Gearman
 {
 	public class Client
 	{
+		private List<Connection> managers; 
+		
+		private int connectionIndex; 
 		
 		public enum JobPriority { 
 			HIGH = 1, 
@@ -19,42 +23,61 @@ namespace Gearman
 		};
 		
 		public static readonly ILog Log = LogManager.GetLogger(typeof(Client));
-		
-		private Connection c; 
-	
+			
 		public Client()
-		{	}
-		
-		public Client (string host) : this()
 		{
-			c = new Connection(host, 4730);
+			managers = new List<Connection>();
 		}
-		
+			
 		public Client (string host, int port) : this()
 		{
-			c = new Connection(host, port);
+			Connection c = new Connection(host, port);
+			managers.Add(c);
 		}
+		
+		public Client (string host) : this(host, 4730) { }
 		
 		public byte[] submitJob(string callback, byte[] data)
 		{
-			//Log.DebugFormat("Configured foo = {0}", config["foo"]);
 			
 			try {
 				RequestPacket p = new RequestPacket(PacketType.SUBMIT_JOB);
-				byte[] preamble = new ASCIIEncoding().GetBytes(callback + "\0" + "12345\0"); 
+	    		Packet result = null;
+				bool submitted = false;
+				Connection c = null; 
+				
+				string jobid = System.Guid.NewGuid().ToString();
+				
+				byte[] preamble = new ASCIIEncoding().GetBytes(callback + "\0" + jobid + "\0"); 
 				byte[] pktdata = new byte[preamble.Length + data.Length];
 				Array.Copy(preamble, pktdata, preamble.Length);
 				Array.Copy(data, 0, pktdata, preamble.Length, data.Length);
 				
 				p.Data = pktdata;
+
+				while(!submitted) {
+					
+					// Simple round-robin submission for now
+					c = managers[connectionIndex++ % managers.Count];
+					
+					c.sendPacket(p);
 				
-				c.sendPacket(p);
+					Log.DebugFormat("Sent job request to {0}...", c);
+					
+					// We need to get back a JOB_CREATED packet
+					result = c.getNextPacket();
+					
+					// If we get back a JOB_CREATED packet, we can continue
+					// otherwise try the next job manager
+					if (result.Type == PacketType.JOB_CREATED) 
+					{
+						submitted = true; 
+						Log.DebugFormat("Created job {0}", result.JobHandle);	
+					}
+				}
 				
-				Log.DebugFormat("Sent job request...");
 				
-	    		Packet result;
-				
-				// Synchronous requests only at the moment, we loop 
+				// This method handles synchronous requests, so we wait 
 				// until we get a work complete packet
 				while(true) { 
 					
@@ -64,9 +87,7 @@ namespace Gearman
 					{
 						Log.DebugFormat("Completed job {0}", result.JobHandle);
 						return result.Data;
-					} else if (result.Type == PacketType.JOB_CREATED) { 
-						Log.DebugFormat("Created job {0}", result.JobHandle);	
-					}
+					} 
 				}
 		
 			} catch (Exception e) { 
@@ -74,7 +95,7 @@ namespace Gearman
 				return null;
 			}
 		}
-		
+				
 		/// <summary>Submit a job to the job server in the background, with a particular priority</summary>
 		/// <example>
 		/// <code>
@@ -89,6 +110,7 @@ namespace Gearman
 		{
 			try {
 				PacketType pt;
+				Connection c = null; 
 				
 				switch(priority) 
 				{
@@ -104,27 +126,33 @@ namespace Gearman
 				}
 				
 				RequestPacket p = new RequestPacket(pt);
-				p.setData(callback + "\0" + "12345\0" + data );
-				
-				c.sendPacket(p);
-				
-				Log.DebugFormat("Sent background job request...");
-				
+				string jobid = System.Guid.NewGuid().ToString();
+			
+				p.setData(callback + "\0" + jobid + "\0" + data );
+							
 	    		Packet result;
 				
-				// Synchronous requests only at the moment, we loop 
-				// until we get a job created packet, then return the
-				// job ID. 
-				while(true) { 
+				while(true) {
 					
-					result = c.getNextPacket(); 
+					// Simple round-robin submission for now
+					c = managers[connectionIndex++ % managers.Count];
+					
+					c.sendPacket(p);
 				
-					if(result.Type == PacketType.JOB_CREATED)
+					Log.DebugFormat("Sent background job request to {0}...", c);
+					
+					// We need to get back a JOB_CREATED packet
+					result = c.getNextPacket();
+					
+					// If we get back a JOB_CREATED packet, we can continue,
+					// otherwise try the next job manager
+					if (result.Type == PacketType.JOB_CREATED) 
 					{
-						Log.DebugFormat("Submitted job {0}", result.JobHandle);
+						Log.DebugFormat("Created background job {0}, with priority {1}", result.JobHandle, priority.ToString());	
 						return result.JobHandle;
 					}
 				}
+				
 		
 			} catch (Exception e) { 
 				Log.DebugFormat("Error submitting job: {0}", e.ToString());
@@ -137,32 +165,36 @@ namespace Gearman
 			RequestPacket rp = new RequestPacket(PacketType.GET_STATUS);
 			rp.setData(jobHandle);
 			
-			Log.DebugFormat("Checking for status on {0}", jobHandle);
-			c.sendPacket(rp);
-			Packet result; 
+			Packet result = null; 
 			
-			while(true) { 
-					
-				result = c.getNextPacket(); 
+			foreach (Connection conn in managers)
+			{
+				Log.DebugFormat("Checking for status on {0} on {1}", jobHandle, conn);
+				conn.sendPacket(rp);
+				
+				result = conn.getNextPacket(); 
 				
 				if(result.Type == PacketType.STATUS_RES)
-				{
-					Log.DebugFormat("Status of job {0}", jobHandle);
-					
-					byte[] d = result.Data; 
-					byte[] buffer = new byte[256];
-					bool knownstatus = false, running = false;
-					int offset = 0; 
-					int boff = 0; 
-					int percentnumer = 0, percentdenom = 0; 
-					float percentdone = 0; 
-			
+				{			
 					if(result.JobHandle != jobHandle) {
+					
 						Log.DebugFormat("Wrong job!!");
+					
 					} else { 
+											
+						byte[] d = result.Data; 
+						byte[] buffer = new byte[256];
+						bool knownstatus = false, running = false;
+						int offset = 0; 
+						int boff = 0; 
+						int percentnumer = 0, percentdenom = 0; 
+						float percentdone = 0; 
+
 						Log.DebugFormat("Hooray, this is my job!!");
 						ASCIIEncoding encoder = new ASCIIEncoding();
 					
+						// Check to see if this response has a known status 
+						// and if it's running
 						knownstatus = ((int)Char.GetNumericValue((char)d[0]) == 1);
 						running = ((int)Char.GetNumericValue((char)d[2]) == 1);
 						 
@@ -201,10 +233,10 @@ namespace Gearman
 						return (percentdone == 1);
 						
 					}
-									
-					return false;
-				}
-			}			
+				}		
+			}	
+			
+			return false;
 		}
 	}
 }
