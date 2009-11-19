@@ -4,16 +4,33 @@ using System.Net.Sockets;
 using System.Text; 
 
 namespace Gearman
-{
+{	
+	/// <summary>
+	/// Connection is a class that wraps a TCP client connection, and the connection data (hostname, port)
+	/// and adds some methods for reading/writing GM packets between the client/worker and the manager. 
+	/// Methods are provided to easily read and write Packet structures for ease of use.
+	/// </summary>
 	public class Connection
 	{
 		private TcpClient conn; 
 		private string hostname;
 		private int port;
 		
+		/// <summary>
+		/// Default constructor
+		/// </summary>
 		public Connection()
 		{	}
 		
+		/// <summary>
+		/// Constructor connecting to a specific host / port as provided
+		/// </summary>
+		/// <param name="hostname">
+		/// A <see cref="System.String"/> containing the hostname to connect to
+		/// </param>
+		/// <param name="port">
+		/// A <see cref="System.Int32"/> containing the port to connect on
+		/// </param>
 		public Connection(string hostname, int port) 
 		{
 			try { 
@@ -25,6 +42,12 @@ namespace Gearman
 			}
 		}
 	
+		/// <summary>
+		/// Serialize a <see cref="Packet"/> to the network stream (just calls ToByteArray())
+		/// </summary>
+		/// <param name="p">
+		/// A <see cref="Packet"/>
+		/// </param>
 		public void sendPacket(Packet p)
 		{
 			try { 
@@ -35,11 +58,25 @@ namespace Gearman
 			}
 		}
 		
+		/// <summary>
+		/// Convenience method to display the connection as a String
+		/// </summary>
+		/// <returns>
+		/// A <see cref="String"/> formatted as hostname:port
+		/// </returns>
 		public override String ToString()
 		{
 			return String.Format("{0}:{1}", this.hostname, this.port);
 		}
 		
+		/// <summary>
+		/// This method fetches the next complete response packet from the connection
+		/// to the job manager. Each response packet has a 12 byte header which includes
+		/// a size of the packet, the type, and the data being returned. 
+		/// </summary>
+		/// <returns>
+		/// A <see cref="Packet"/> that is the next fully formed packet from the manager
+		/// </returns>
 		public Packet getNextPacket()
 		{
 			int totalBytes = 0; 
@@ -60,7 +97,7 @@ namespace Gearman
 				try {
 					stream.Read(packet, totalBytes++, 1);
 					
-					// Header is comeplete, check for important data
+					// Header is complete, check for important data
 					if(totalBytes == 12) { 
 						// Check byte count
 						byte[] sizebytes = packet.Slice(8,12); 
@@ -97,6 +134,7 @@ namespace Gearman
 			if(packet != null) 
 			{
 				Packet p = new Packet(packet);
+				// TODO: remove this or change it to debug mode only
 				p.Dump();
 				return p; 
 			} else { 
