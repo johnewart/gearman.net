@@ -1,7 +1,9 @@
 
 using System;
+using System.Net;
 using System.Net.Sockets;
 using System.Text; 
+using System.Text.RegularExpressions;
 
 namespace Gearman
 {	
@@ -12,9 +14,11 @@ namespace Gearman
 	/// </summary>
 	public class Connection
 	{
-		private TcpClient conn; 
+		private Socket conn; 
 		private string hostname;
 		private int port;
+		private IPAddress ipa;
+		private IPEndPoint endpoint;
 		
 		/// <summary>
 		/// Default constructor
@@ -32,14 +36,41 @@ namespace Gearman
 		/// A <see cref="System.Int32"/> containing the port to connect on
 		/// </param>
 		public Connection(string hostname, int port) 
-		{
+		{	
+			this.hostname = hostname; 
+			this.port = port; 
+				
+			try {
+				ipa = IPAddress.Parse(hostname);
+			} catch (Exception) {
+				// Connect to the first DNS entry
+				ipa = Dns.GetHostAddresses(hostname)[0];	
+			}
+			
+			
+			endpoint = new IPEndPoint(ipa, port);
+		
+			if(ipa.AddressFamily.Equals(AddressFamily.InterNetworkV6))
+			{
+				//IPv6 hostname
+				conn = new Socket(
+    					AddressFamily.InterNetworkV6,
+    					SocketType.Stream,
+    					ProtocolType.Tcp);
+			} else {
+				// IPv4 IP or hostname
+				conn = new Socket(
+				    AddressFamily.InterNetwork, 
+				    SocketType.Stream,
+				    ProtocolType.Tcp);
+			}		
+			
 			try { 
-				this.hostname = hostname; 
-				this.port = port; 
-				conn = new TcpClient(hostname, port);
+				conn.Connect(endpoint);
 			} catch (Exception e) { 
 				Console.WriteLine("Error initializing connection to job server: " + e.ToString());
 			}
+
 		}
 	
 		/// <summary>
@@ -51,8 +82,7 @@ namespace Gearman
 		public void sendPacket(Packet p)
 		{
 			try { 
-				NetworkStream stream = conn.GetStream();
-				stream.Write(p.ToByteArray(),0, p.Length);
+				conn.Send(p.ToByteArray());
 			} catch (Exception e) {
 				Console.WriteLine("Unable to send packet: {0}", e.ToString());
 			}
@@ -79,55 +109,41 @@ namespace Gearman
 		/// </returns>
 		public Packet getNextPacket()
 		{
-			int totalBytes = 0; 
-			bool pktDone = false; 
 			int messagesize = -1; 
-			
-			NetworkStream stream = conn.GetStream(); 
-			
-			pktDone = false; 
-			
+				
 			// Initialize to 12 bytes (header only), and resize later as needed
 			byte[] packet = new byte[12];
 			messagesize = -1; 
-			totalBytes = 0; 
 			
- 			while (!pktDone) 
-			{
-				try {
-					stream.Read(packet, totalBytes++, 1);
+			try {
+				// Read the first 12 bytes (header)
+				conn.Receive(packet, 12, 0);
+						
+				// Check byte count
+				byte[] sizebytes = packet.Slice(8,12); 
+				
+				if(BitConverter.IsLittleEndian)
+					Array.Reverse(sizebytes);
+						
+				messagesize = BitConverter.ToInt32(sizebytes, 0);
+				
+				if (messagesize > 0) 
+				{
+					Console.WriteLine("Packet is another {0} bytes", messagesize);
+					byte[] tmp = packet.Slice(0,12);
 					
-					// Header is complete, check for important data
-					if(totalBytes == 12) { 
-						// Check byte count
-						byte[] sizebytes = packet.Slice(8,12); 
-						
-						if(BitConverter.IsLittleEndian)
-							Array.Reverse(sizebytes);
-						
-						messagesize = BitConverter.ToInt32(sizebytes, 0);
-						
-						if (messagesize > 0) 
-						{
-							Console.WriteLine("Packet is another {0} bytes", messagesize);
-							byte[] tmp = packet.Slice(0,12);
-							
-							// Grow packet buffer to fit data
-							packet = new byte[messagesize + 13];
-							Array.Copy(tmp, packet, 12);
-						}
-					}
+					// Grow packet buffer to fit data
+					packet = new byte[messagesize + 13];
+					Array.Copy(tmp, packet, 12);
 					
-					if(messagesize != -1 && messagesize == (totalBytes - 12))
-					{
-						Console.WriteLine("Done parsing message");
-						pktDone = true;
-					} 
-
-				} catch (Exception e) { 
-					Console.WriteLine("Exception reading data: {0}", e.ToString());
+					// Receive the remainder of the message *after* the header
+					conn.Receive(packet,12,messagesize,0); 
 				}
+			
+			} catch (Exception e) { 
+				Console.WriteLine("Exception reading data: {0}", e.ToString());
 			}
+		
 			
 			Console.WriteLine("Finished processing packet!");
 			

@@ -15,11 +15,6 @@ namespace Gearman.Tests
 			int words = 0;
 			byte[] outdata = new byte[1024];
 			
-			//for(int i = 0; i < indata.Length; i++) 
-			//{
-			//	if (indata[i] == 10)
-		//			words++;
-	//		}
 			Random r = new Random();
 			int next = -1;
 			byte completediterations = 0; 
@@ -33,12 +28,7 @@ namespace Gearman.Tests
 				if (next > 50)
 				{
 					completediterations++;
-					
-					//byte[] data = new byte[3];
-					
-					//data[0] = completediterations; 
-					//data[2] = totaliterations;
-					
+										
 					byte[] data = new ASCIIEncoding().GetBytes(completediterations + "\0" + totaliterations);
 				
 					rp = new RequestPacket(PacketType.WORK_STATUS, data, jobPacket.JobHandle);

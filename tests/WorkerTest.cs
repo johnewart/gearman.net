@@ -1,6 +1,8 @@
 using System;
-using NUnit.Framework;
+using System.Net.Sockets; 
 using System.Text; 
+
+using NUnit.Framework;
 using Gearman;
 
 namespace Gearman.Tests
@@ -27,8 +29,8 @@ namespace Gearman.Tests
 		}
 		
 		[Test]
-    	public void testWC()
-    	{
+    		public void testWC()
+    		{
       		Worker w = new Worker("localhost");
 			w.registerFunction("wc", wctest);
 			w.workLoop();
@@ -45,5 +47,26 @@ namespace Gearman.Tests
 			
 			w.stopWorkLoop();
 	    }
+	
+		[Test]
+		public void testWordCountIPv6()
+		{
+		    Worker w = new Worker("::1");
+			w.registerFunction("wc", wctest);
+			w.workLoop();
+			
+			Client c = new Client("::1");
+			byte[] data = new ASCIIEncoding().GetBytes("zzz\nyyy\napple\nbaz\nfoo\nnarf\nquiddle\n");
+			byte[] result = c.submitJob("wc", data);
+		
+			Assert.IsNotNull(result);
+			
+			int resultasint = BitConverter.ToInt32(result, 0);
+			
+			Assert.AreEqual(resultasint, 7);
+			
+			w.stopWorkLoop();			
+		}
+	
 	}
 }
