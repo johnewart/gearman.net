@@ -49,7 +49,7 @@ namespace Gearman
 		WORK_WARNING,			// REQ    Worker
 		                        // RES    Client
 		GRAB_JOB_UNIQ,			// REQ    Worker
-		JOB_ASSIGN_UNIQ,			// RES    Worker
+		JOB_ASSIGN_UNIQ,		// RES    Worker
 		SUBMIT_JOB_HIGH_BG,		// REQ    Client
 		SUBMIT_JOB_LOW,			// REQ    Client
 		SUBMIT_JOB_LOW_BG,		// REQ    Client

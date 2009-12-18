@@ -6,6 +6,8 @@ using System.Net.Sockets;
 using System.Text; 
 using log4net;
 
+using Gearman.Packets.Worker;
+
 namespace Gearman
 {
 	/// <summary>
@@ -44,7 +46,15 @@ namespace Gearman
 	///	}
 	/// </code>
 	/// </example>
-
+	
+	
+	/// <summary>
+	/// Task delegate must take a packet and a connection and return a byte array
+	/// The connection is required to send data back (such as progress updates), and
+	/// the packet is used to get information such as job handle, packet data, etc.
+	/// </summary>
+	public delegate void taskdelegate(Job j); 
+		
 	public class Worker
 	{
 	
@@ -54,19 +64,12 @@ namespace Gearman
 		
 		// Dictionary of method mappings (string -> delegate)
 		private Dictionary<string, taskdelegate> methodMap;
-		
+				
 		// Running thread
 		private Thread t;
 		
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Worker));
 
-		/// <summary>
-		/// Task delegate must take a packet and a connection and return a byte array
-		/// The connection is required to send data back (such as progress updates), and
-		/// the packet is used to get information such as job handle, packet data, etc.
-		/// </summary>
-		public delegate byte[] taskdelegate(Packet jobPacket, Connection c); 
-		
 		/// <summary>
 		/// Default constructor, initialize empty method map of strings -> delegates
 		/// </summary>
@@ -74,6 +77,7 @@ namespace Gearman
 		{
 			methodMap = new Dictionary<string, taskdelegate>();
 		}
+		
 		/// <summary>
 		/// Constructor requiring both the host and the port number to connect to
 		/// </summary>
@@ -96,7 +100,7 @@ namespace Gearman
 		/// </param>
 		public Worker (string host) : this(host, 4730)
 		{		}
-
+		
 		/// <summary>
 		/// Add a task <--> delegate mapping to this worker. A task name is a short string that the worker registers
 		/// with the manager, for example "reverse". The delegate is a callback that the worker calls when it receives a
@@ -110,13 +114,15 @@ namespace Gearman
 		/// (must match the <see cref="taskdelegate"/> specification)
 		/// </param>
 		public void registerFunction(string taskname, taskdelegate function)
-		{
+		{	
+			if(!methodMap.ContainsKey(taskname))
+			{
+				c.sendPacket(new CanDo(taskname));
+			}
+			
 			methodMap[taskname] = function;
-			RequestPacket r = new RequestPacket();
-			r.Type = PacketType.CAN_DO;
-			r.setData(taskname);
-			c.sendPacket(r);
 		}
+		
 		                
 		/// <summary>
 		/// Get this thing going.
@@ -163,48 +169,33 @@ namespace Gearman
 			ASCIIEncoding encoder = new ASCIIEncoding(); 
 			// Grab job from server (if available)
 			Log.DebugFormat("Checking for job...");
-			RequestPacket rp = new RequestPacket();
-			rp.Type = PacketType.GRAB_JOB;
 			
-			c.sendPacket(rp);
+			c.sendPacket(new GrabJob());
 			
 			Packet response = c.getNextPacket();
 			
 			if (response.Type == PacketType.JOB_ASSIGN)
 			{
-				Log.DebugFormat("Assigned job: {0}", response.JobHandle);
-				byte[] payload = response.Data;
-				bool gotTask = false;
-				string task = "";
+				Job job = new Job((JobAssign)response, this);
 				
-				for(int i = 0; i < payload.Length; i++)
-				{
-					if (payload[i] == 0 || i == payload.Length - 1)
-					{
-						if(!gotTask)
-						{
-							Log.DebugFormat("Got zero byte and no task yet...");
-							task = encoder.GetString(payload, 0, i);
-							gotTask = true; 		
-						} else {
-							Log.DebugFormat("Task: {0}", task); 
-							byte[] result      = methodMap[task](response, c);
-							string resultText  = encoder.GetString(result);
-							
-							Log.DebugFormat("Result: " + resultText);
-							
-							RequestPacket workresult = new RequestPacket(PacketType.WORK_COMPLETE, result, response.JobHandle);
-							c.sendPacket(workresult);
-							
-							workresult.Dump();
-							
-						}	
-					}	
-				}
+				Log.DebugFormat("Assigned job: {0}", job.jobhandle);
+				Log.DebugFormat("Payload length: {0}", job.data.Length);
+				Log.DebugFormat("Task: {0}", job.taskname);
+				
+				// Fire event for listeners
+				methodMap[job.taskname](job);
+						
 			} else if (response.Type == PacketType.NO_JOB) {
 				Log.DebugFormat("Nothing to do!");
 			} 
 		}
 		
+		public Connection connection {
+			get {
+				return c; 
+			}
+			
+			set { }
+		}
 	}
 }

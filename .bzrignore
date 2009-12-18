@@ -1,2 +1,7 @@
 bin
 obj
+Gearman.pidb
+Gearman.net.userprefs
+test-results
+**/.*
+**/*.pidb

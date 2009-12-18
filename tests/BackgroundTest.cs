@@ -3,6 +3,8 @@ using System.Text;
 using System.Threading;
 using NUnit.Framework;
 using Gearman; 
+using Gearman.Packets.Worker;
+using Gearman.Packets.Client; 
 
 namespace Gearman.Tests
 {
@@ -10,43 +12,39 @@ namespace Gearman.Tests
   	[TestFixture]
   	public class BackgroundTest
   	{
-		private static byte[] bgtest(Packet jobPacket, Connection c)
+		
+		private void bgtest(Job j)
 		{
 			int words = 0;
 			byte[] outdata = new byte[1024];
 			
-			Random r = new Random();
-			int next = -1;
 			byte completediterations = 0; 
-			byte totaliterations = 100;
+			byte totaliterations = 60;
 			
-			RequestPacket rp; 
+			WorkStatus ws; 
 			
 			while(completediterations < totaliterations)
 			{
-				next = r.Next(0, 100);
-				if (next > 50)
-				{
-					completediterations++;
-										
-					byte[] data = new ASCIIEncoding().GetBytes(completediterations + "\0" + totaliterations);
-				
-					rp = new RequestPacket(PacketType.WORK_STATUS, data, jobPacket.JobHandle);
-					rp.Dump();
-					c.sendPacket(rp);
-				}
-				Thread.Sleep(1000);
+				completediterations++;
+
+				ws = new WorkStatus(j.jobhandle, completediterations, totaliterations); 
+							
+				j.sendWorkUpdate(ws);
+			
+				Thread.Sleep(500);
 			}
 			
 			words = 10;
 			outdata = BitConverter.GetBytes(words);
 			Console.WriteLine("Found {0} words", words);
-			return outdata;
+			j.sendResults(outdata);
+			
+			//return outdata;
 		}
 		
 		[Test]
-    	public void testBackgroundJob()
-    	{
+    		public void testBackgroundJob()
+    		{
       		Worker w = new Worker("localhost");
 			w.registerFunction("bgtest", bgtest);
 			w.workLoop();

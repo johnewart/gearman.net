@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text; 
 using System.Text.RegularExpressions;
+using Gearman.Packets.Client; 
+using Gearman.Packets.Worker; 
 
 namespace Gearman
 {	
@@ -110,53 +112,104 @@ namespace Gearman
 		public Packet getNextPacket()
 		{
 			int messagesize = -1; 
-				
+			int messagetype = -1; 
+			
 			// Initialize to 12 bytes (header only), and resize later as needed
-			byte[] packet = new byte[12];
+			byte[] header = new byte[12];
+			byte[] packet; 
+			
 			messagesize = -1; 
 			
 			try {
 				// Read the first 12 bytes (header)
-				conn.Receive(packet, 12, 0);
+				conn.Receive(header, 12, 0);
 						
 				// Check byte count
-				byte[] sizebytes = packet.Slice(8,12); 
+				byte[] sizebytes = header.Slice(8,12); 
+				byte[] typebytes = header.Slice(4,8);
 				
 				if(BitConverter.IsLittleEndian)
+				{
 					Array.Reverse(sizebytes);
-						
+					Array.Reverse(typebytes);
+				}		
+				
 				messagesize = BitConverter.ToInt32(sizebytes, 0);
+				messagetype = BitConverter.ToInt32(typebytes, 0);
 				
 				if (messagesize > 0) 
-				{
-					Console.WriteLine("Packet is another {0} bytes", messagesize);
-					byte[] tmp = packet.Slice(0,12);
-					
+				{					
 					// Grow packet buffer to fit data
-					packet = new byte[messagesize + 13];
-					Array.Copy(tmp, packet, 12);
+					packet = new byte[12 + messagesize];
+					Array.Copy(header, packet, header.Length);
 					
-					// Receive the remainder of the message *after* the header
-					conn.Receive(packet,12,messagesize,0); 
+					// Receive the remainder of the message 
+					conn.Receive(packet, 12, messagesize, 0); 
+				} else {
+					packet = header; 
 				}
+										
+				switch((PacketType)messagetype)
+				{
+					case PacketType.JOB_CREATED:
+						return new JobCreated(packet);
+						
+					case PacketType.WORK_DATA:
+						return new WorkData(packet);
+						
+					case PacketType.WORK_WARNING:
+						return new WorkWarning(packet);
+						
+					case PacketType.WORK_STATUS:
+						return new WorkStatus(packet);
+						
+					case PacketType.WORK_COMPLETE:
+						return new WorkComplete(packet);
+						
+					case PacketType.WORK_FAIL:
+						return new WorkFail(packet);
+						
+					case PacketType.WORK_EXCEPTION:
+						return new WorkException(packet);
+						
+					case PacketType.STATUS_RES:
+						return new StatusRes(packet);
+						
+					case PacketType.OPTION_RES:
+						// TODO Implement option response
+						break;
+					
+					/* Client and worker response packets */
+					case PacketType.ECHO_RES:
+						// TODO Implement the echo response
+						break;
+					case PacketType.ERROR:
+						// TODO Implement the error packet
+						break;
 			
+					/* Worker response packets */
+					case PacketType.NOOP:
+						return new NoOp();
+						
+					case PacketType.NO_JOB:
+						return new NoJob();
+					
+					case PacketType.JOB_ASSIGN:
+						return new JobAssign(packet);
+						
+					case PacketType.JOB_ASSIGN_UNIQ:
+						return new JobAssignUniq(packet);
+						
+					default: 
+						return null;
+				}
+				
 			} catch (Exception e) { 
 				Console.WriteLine("Exception reading data: {0}", e.ToString());
-			}
-		
+				return null;
+			} 
 			
-			Console.WriteLine("Finished processing packet!");
-			
-			if(packet != null) 
-			{
-				Packet p = new Packet(packet);
-				// TODO: remove this or change it to debug mode only
-				p.Dump();
-				return p; 
-			} else { 
-				// TODO: Throw exception here instead
-				return null; 
-			}
+			return null;
 		}
 	}
 }

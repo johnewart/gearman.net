@@ -7,6 +7,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text; 
 using log4net;
+using Gearman.Packets.Client;
+using Gearman.Packets.Worker;
+
 
 namespace Gearman
 {
@@ -40,7 +43,7 @@ namespace Gearman
 		/// <summary>
 		/// Constructor (default), initializes an empty list of managers
 		/// </summary>
-		public Client()
+		private Client()
 		{
 			managers = new List<Connection>();
 		}
@@ -69,6 +72,31 @@ namespace Gearman
 		public Client (string host) : this(host, 4730) { }
 		
 		/// <summary>
+		/// Add a new host to the list of hosts to try connecting to, taking both a hostname and a port
+		/// </summary>
+		/// <param name="host">
+		/// A <see cref="System.String"/> representing the hostname
+		/// </param>
+		/// <param name="port">
+		/// A <see cref="System.Int32"/> representing the port to connect on
+		/// </param>
+		public void addHostToList(string host, int port) 
+		{
+			managers.Add(new Connection(host, port));
+		}
+		
+		/// <summary>
+		/// Add a new host to the list of hosts to try connecting to, taking only a hostname, using default port 4730
+		/// </summary>
+		/// <param name="host">
+		/// A <see cref="System.String"/>
+		/// </param>
+		public void addHostToList(string host)
+		{
+			this.addHostToList(host, 4730);
+		}
+		
+		/// <summary>
 	    /// Submit a job to a job server for processing. The callback string is used as the 
 	   	/// task for the manager to hand off the job to a worker. 
 	    /// </summary>
@@ -93,20 +121,14 @@ namespace Gearman
 		{
 			
 			try {
-				RequestPacket p = new RequestPacket(PacketType.SUBMIT_JOB);
-	    		Packet result = null;
+				Packet result = null;
 				bool submitted = false;
 				Connection c = null; 
 				
 				string jobid = System.Guid.NewGuid().ToString();
 				
-				byte[] preamble = new ASCIIEncoding().GetBytes(callback + "\0" + jobid + "\0"); 
-				byte[] pktdata = new byte[preamble.Length + data.Length];
-				Array.Copy(preamble, pktdata, preamble.Length);
-				Array.Copy(data, 0, pktdata, preamble.Length, data.Length);
+				SubmitJob p = new SubmitJob(callback, jobid, data, false);
 				
-				p.Data = pktdata;
-
 				while(!submitted) {
 					
 					// Simple round-robin submission for now
@@ -124,7 +146,7 @@ namespace Gearman
 					if (result.Type == PacketType.JOB_CREATED) 
 					{
 						submitted = true; 
-						Log.DebugFormat("Created job {0}", result.JobHandle);	
+						Log.DebugFormat("Created job {0}",  ((JobCreated)result).jobhandle);	
 					}
 				}
 				
@@ -137,8 +159,10 @@ namespace Gearman
 				
 					if(result.Type == PacketType.WORK_COMPLETE)
 					{
-						Log.DebugFormat("Completed job {0}", result.JobHandle);
-						return result.Data;
+						WorkComplete wc = (WorkComplete)result;
+						
+						Log.DebugFormat("Completed job {0}", wc.jobhandle);
+						return wc.data;
 					} 
 				}
 		
@@ -156,28 +180,13 @@ namespace Gearman
 		public string submitJobInBackground(string callback, byte[] data, JobPriority priority)
 		{
 			try {
-				PacketType pt;
 				Connection c = null; 
 				
-				switch(priority) 
-				{
-					case JobPriority.HIGH:
-						pt = PacketType.SUBMIT_JOB_HIGH_BG;
-						break;
-					case JobPriority.LOW:
-						pt = PacketType.SUBMIT_JOB_LOW_BG;
-						break;	
-					default:
-						pt = PacketType.SUBMIT_JOB_BG;
-						break;
-				}
-				
-				RequestPacket p = new RequestPacket(pt);
 				string jobid = System.Guid.NewGuid().ToString();
-			
-				p.setData(callback + "\0" + jobid + "\0" + data );
-							
-	    		Packet result;
+
+				SubmitJob p = new SubmitJob(callback, jobid, data, true, priority);
+					
+	    			Packet result;
 				
 				while(true) {
 					
@@ -195,8 +204,8 @@ namespace Gearman
 					// otherwise try the next job manager
 					if (result.Type == PacketType.JOB_CREATED) 
 					{
-						Log.DebugFormat("Created background job {0}, with priority {1}", result.JobHandle, priority.ToString());	
-						return result.JobHandle;
+						Log.DebugFormat("Created background job {0}, with priority {1}", ((JobCreated)result).jobhandle, priority.ToString());	
+						return ((JobCreated)result).jobhandle;
 					}
 				}
 				
@@ -223,71 +232,47 @@ namespace Gearman
 		/// </returns>
 		public bool checkIsDone(string jobHandle)
 		{
-			RequestPacket rp = new RequestPacket(PacketType.GET_STATUS);
-			rp.setData(jobHandle);
+			GetStatus statusPkt = new GetStatus(jobHandle);
 			
 			Packet result = null; 
 			
 			foreach (Connection conn in managers)
 			{
 				Log.DebugFormat("Checking for status on {0} on {1}", jobHandle, conn);
-				conn.sendPacket(rp);
+				conn.sendPacket(statusPkt);
 				
 				result = conn.getNextPacket(); 
 				
 				if(result.Type == PacketType.STATUS_RES)
-				{			
-					if(result.JobHandle != jobHandle) {
+				{		
+					StatusRes statusResult = (StatusRes)result; 
+					
+					if(statusResult.jobhandle != jobHandle) {
 					
 						Log.DebugFormat("Wrong job!!");
 					
 					} else { 
 											
-						byte[] d = result.Data; 
-						byte[] buffer = new byte[256];
-						bool knownstatus = false, running = false;
-						int offset = 0; 
-						int boff = 0; 
-						int percentnumer = 0, percentdenom = 0; 
-						float percentdone = 0; 
-
 						Log.DebugFormat("Hooray, this is my job!!");
-						ASCIIEncoding encoder = new ASCIIEncoding();
-					
+						
+						float percentdone = 0;
+						
+						if(statusResult.pctCompleteDenominator != 0)
+						{
+						 	percentdone = statusResult.pctCompleteNumerator / statusResult.pctCompleteDenominator; 						
+						}  
+							
+						
 						// Check to see if this response has a known status 
 						// and if it's running
-						knownstatus = ((int)Char.GetNumericValue((char)d[0]) == 1);
-						running = ((int)Char.GetNumericValue((char)d[2]) == 1);
-						 
-						if(knownstatus && running)
-						{
-							offset = 4; 
-							while(d[offset] != 0)
-							{
-								buffer[boff++] = d[offset++];
-							}	
-					
-							percentnumer = int.Parse(encoder.GetString(buffer));
-							boff = 0; 
-							offset++; 
-							
-							while(d[offset] != 0)
-							{
-								buffer[boff++] = d[offset++];
-							}
-							percentdenom = int.Parse(encoder.GetString(buffer));
-									
-							if(percentdenom != 0) 
-								percentdone = (float)percentnumer / (float)percentdenom; 
-							else
-								percentdone = 0; 
-							
+						
+						if(statusResult.knownstatus && statusResult.running) {		
 							Log.DebugFormat("{0}% done!", percentdone * 100);
 						} else { 
-							if (!knownstatus)
+							if (!statusResult.knownstatus)
 								Log.DebugFormat("Status of job not known!");
 						
-							if (!running) 
+							if (!statusResult.running) 
 								Log.DebugFormat("Job not running!");
 						}	
 						
@@ -299,5 +284,16 @@ namespace Gearman
 			
 			return false;
 		}
+
+		
+		public List<Connection> HostList { 
+			get { 
+				return this.managers;	
+			}
+			
+			set { 
+			}
+		}
 	}
+	
 }

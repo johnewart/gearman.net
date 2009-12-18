@@ -13,7 +13,7 @@ namespace Gearman
 	/// and worker only make requests (even when handing back data), so there isn't really much of a need to lead a packet's 
 	/// preamble with 'RES'.
 	/// </summary>
-	public class Packet
+	public abstract class Packet
 	{
 		/// <summary>
 		/// Header magic (i.e REQ/RES data)
@@ -30,15 +30,8 @@ namespace Gearman
 		/// </summary>
 		protected int size;
 		
-		/// <summary>
-		/// <see cref="System.byte[]"/> array representing the raw data of the packet
-		/// </summary>
-		protected byte[] data; 
-		
-		/// <summary>
-		/// A <see cref="System.string"/> containing the unique job handle
-		/// </summary>
-		protected string jobhandle; 
+		protected byte[] rawdata; 
+		protected byte[] pHeader; 
 		
 		/// <summary>
 		/// Default constructor (inline, does nothing)
@@ -60,7 +53,7 @@ namespace Gearman
 		{
 			byte[] typebytes = fromdata.Slice(4, 8);
 			byte[] sizebytes = fromdata.Slice(8, 12);
-			
+		
 			if(BitConverter.IsLittleEndian)
 			{
 				Array.Reverse(typebytes);
@@ -69,44 +62,33 @@ namespace Gearman
 			
 			this.type = (PacketType)BitConverter.ToInt32(typebytes, 0);
 			this.size = BitConverter.ToInt32(sizebytes, 0);		
-			this.Data = fromdata.Slice(12, fromdata.Length);
-
+			this.rawdata = new byte[this.size];
+			Array.Copy(fromdata, 12, this.rawdata, 0, this.size);
+		}
+				
+		public int parseString(int offset, ref string storage)
+		{
+			int pStart; 
+			int pOff;
+			pOff = pStart = offset; 
+			for(; pOff < rawdata.Length && rawdata[pOff] != 0; pOff++);
+			storage = new ASCIIEncoding().GetString(rawdata.Slice(pStart, pOff));
+			// Return 1 past where we are...
+			return pOff + 1;
 		}
 		
 		/// <summary>
 		/// The length of the data portion of the packet, including any job handle (if it exists)
 		/// </summary>
-		public int DataLength { 
-			set { 
-			}
-			
-			get { 
-				int result = this.size; 
-				
-				// If there's a job handle and we need to include it...
-				if (jobhandle != null && jobhandle != "") 
-				{
-					result += jobhandle.Length + 1; 
-				}
-				
-				return result; 
-			}
-		}
-		
-		/// <summary>
-		/// The length of the entire packet, header included.
-		/// </summary>
 		public int Length { 
 			set { 
-				this.size = value - 12; 
-			} 
+			}
 			
 			get { 
-				// Include header size...
-				return this.DataLength + 12; 
+				return this.size + 12;
 			}
 		}
-		
+				
 		/// <summary>
 		/// An integer from the PacketType enum representing the type of packet this is
 		/// </summary>
@@ -121,170 +103,77 @@ namespace Gearman
 			}
 		}
 		
+	
 		/// <summary>
-		/// A <see cref="System.byte[]"/> array of the data stored in the packet. 
-		/// </summary>
-		public byte[] Data {
-			set {			
-				Console.WriteLine("Setting data");
-				switch(this.type) 
-				{ 
-					case PacketType.JOB_CREATED:
-					case PacketType.JOB_ASSIGN:
-					case PacketType.WORK_COMPLETE:
-					case PacketType.WORK_STATUS:
-					case PacketType.STATUS_RES:
-						bool sawhandle = false; 
-						int i = 0;
-						int handleoffset = 0; 
-					
-						if (this.JobHandle == null || this.JobHandle == "")
-						{
-							Console.WriteLine("No job handle, yet...");
-							for(i = 0; i < value.Length && !sawhandle; i++)
-							{
-								if(value[i] == 0)
-								{ 
-									this.jobhandle = new ASCIIEncoding().GetString(value.Slice(0, i));
-									handleoffset = i+1; 
-									sawhandle = true; 
-								}
-							}
-						} else { 
-							i = value.Length;
-						}	
-								
-						if (value[value.Length-1] != 0)
-						{	
-							// Pad the end with a zero-byte if there isn't one in the data
-							this.data = new byte[value.Length + 1];
-							Array.Copy(value, handleoffset, data, 0, value.Length - handleoffset);
-							this.size = (i  - handleoffset) + 1;
-
-						} else {
-							this.data = value.Slice(handleoffset, value.Length);
-							this.size = i - handleoffset;
-						}
-
-					
-						break;
-					default:	
-						this.data = value;
-						this.size = value.Length;
-						break;
-				}
-			}
-			
-			get { 
-				return data;
-			}
-		}
-		
-		/// <summary>
-		/// A string representing a packet's job handle
-		/// </summary>
-		public string JobHandle { 
-			set {
-				Console.WriteLine("Setting job handle to {0}", value);
-				this.jobhandle = value;
-			}
-			
-			get { 
-				return jobhandle;
-			}
-		}
-		
-		/// <summary>
-		/// Convert the entire packet into a byte array. Typical usage is for sending the packet across the wire
-		/// but could also be used for serializing data to a file if needed. Endian-ness is taken care of, making 
-		/// this acceptable for network transmission.
+		/// Default ToByteArray function that returns a byte array that contains the packet header.
+		/// Useful as a default function because some packets have no data beyond packet type as a
+		/// simple message packet. This is called to serialize to a socket, or possibly even a file.
 		/// </summary>
 		/// <returns>
-		/// A <see cref="System.Byte[]"/>
+		/// A <see cref="System.Byte[]"/> array that represents the packet
 		/// </returns>
-		unsafe public byte[] ToByteArray()
-		{				
-			byte[] output = new byte[this.Length];
+		public virtual byte[] ToByteArray() 
+		{ 
+			return Header;
+		}
 
-			byte[] typebytes = BitConverter.GetBytes((int)this.Type);
-			byte[] sizebytes;
-			
-			if (this.data != null) 
-			{
-				sizebytes  = BitConverter.GetBytes((int)this.DataLength);
-			} else { 
-				sizebytes = BitConverter.GetBytes(0);
-			}
-			
-			if (BitConverter.IsLittleEndian)
-			{
-				Array.Reverse(typebytes);
-				Array.Reverse(sizebytes);
-			}
-			
-			// HACK: Sooooo ugly... replace with the magic[] data
-			
-			output[0] = (byte)'\0';
-			output[1] = (byte)'R';
-			output[2] = (byte)'E';
-			output[3] = (byte)'Q';
-			
-			output[4] = typebytes[0];
-			output[5] = typebytes[1];
-			output[6] = typebytes[2];
-			output[7] = typebytes[3];
-			
-			output[8] = sizebytes[0];
-			output[9] = sizebytes[1];
-			output[10] = sizebytes[2];
-			output[11] = sizebytes[3];
-			
-			int offset = 12; 
-			
-			if (jobhandle != null && jobhandle != "") 
-			{
-				byte[] jhbytes = new ASCIIEncoding().GetBytes(jobhandle);
-				Array.Copy(jhbytes, 0, output, 12, jhbytes.Length);
-				// Skip one byte, because jobhandle is null-byte terminated
-				offset += jhbytes.Length + 1;
-			}
-			
-			if (data != null) 
-			{
-				Array.Copy(data, 0, output, offset, data.Length);
-			}
-			
-			return output;
-    		}
+		// TODO Implement a dirty flag?
 		
 		/// <summary>
-		/// Convenience method to set the packet data using a string. This internally just converts the string to 
-		/// ASCII data and then converts that to a byte array and updates the size as needed.
+		/// Calculate the header as a byte array. This is the same across every type of packet, so it's
+		/// in here.
 		/// </summary>
-		/// <param name="_data">
-		/// A <see cref="String"/> that contains the entire packet. Something such as 'callback + "\0" + jobid + "\0" + data'
-		/// </param>
-		/// <example>
-		/// Typically this would be used with a RequestPacket for convenience, for example:
-		/// <code>
-		/// RequestPacket p = new RequestPacket(pt);
-		/// string jobid = System.Guid.NewGuid().ToString();
-		/// p.setData(callback + "\0" + jobid + "\0" + data );
-		/// </code>
-		/// </example>
-		public void setData(String _data)
-		{
-			System.Text.ASCIIEncoding encoding=new System.Text.ASCIIEncoding();
-			data = encoding.GetBytes(_data);
-			this.size = _data.Length;
-		}
+		/// <returns>
+		/// A <see cref="System.Byte[]"/> 
+		/// </returns>
+		public byte[] Header
+		{				
+			get {
+				if (pHeader == null)
+				{
+					pHeader = new byte[12];
 		
-    		/// <summary>
+					byte[] typebytes = BitConverter.GetBytes((int)this.Type);
+					byte[] sizebytes;
+					
+					sizebytes  = BitConverter.GetBytes((int)this.size);
+					
+					if (BitConverter.IsLittleEndian)
+					{
+						Array.Reverse(typebytes);
+						Array.Reverse(sizebytes);
+					}
+					
+					// HACK: Sooooo ugly... replace with the magic[] data
+					
+					pHeader[0] = (byte)'\0';
+					pHeader[1] = (byte)'R';
+					pHeader[2] = (byte)'E';
+					pHeader[3] = (byte)'Q';
+					
+					pHeader[4] = typebytes[0];
+					pHeader[5] = typebytes[1];
+					pHeader[6] = typebytes[2];
+					pHeader[7] = typebytes[3];
+					
+					pHeader[8] = sizebytes[0];
+					pHeader[9] = sizebytes[1];
+					pHeader[10] = sizebytes[2];
+					pHeader[11] = sizebytes[3];		
+				}
+				
+				return pHeader;
+			}
+			
+			set {}
+    	}
+		
+    	/// <summary>
     		/// Convenience debug method to display the contents of a packet.
     		/// </summary>	
 		public void Dump()
 		{
-			Console.WriteLine("Dumping {0} packet with {1} bytes of data, total size: {2}!", type.ToString("g"), data.Length, this.DataLength);
+			Console.WriteLine("Dumping {0} packet with {1} bytes of data in the body:", type.ToString("g"), this.size);
 			
 			try { 
 				int count = 0;
@@ -293,32 +182,34 @@ namespace Gearman
 				
 				ASCIIEncoding encoding = new ASCIIEncoding( );
 
-				while(count < data.Length)
-	            {
-					idata = data[count];
-					
-					if ( (((count % 16) == 0) && count != 0) || (count == data.Length - 1) )
-					{
-						string output = "";
-						string text = encoding.GetString(line);
-
-						string result = Regex.Replace(text, @"[^0-9a-zA-Z]", ".");
-							
-						for(int i = 0; i < data.Length && i < 16; i+=2) 
-						{		
-							output += String.Format("{0:x2}{1:x2} ", line[i], line[i+1]);
-						}
+				if(rawdata != null)
+				{
+					while(count < this.size)
+		            {
+						idata = rawdata[count];
 						
-						Console.WriteLine("0x{0:x4}: {1} {2}", count-16, output, result);
-						line = new byte[16];
-					} 
-					
-					line[count % 16] = Convert.ToByte(idata);
-					
-					
-					count++;
-	            }
-				
+						if ( (((count % 16) == 0) && count != 0) || (count == rawdata.Length - 1) )
+						{
+							string output = "";
+							string text = encoding.GetString(line);
+	
+							string result = Regex.Replace(text, @"[^0-9a-zA-Z]", ".");
+								
+							for(int i = 0; i < rawdata.Length && i < 16; i+=2) 
+							{		
+								output += String.Format("{0:x2}{1:x2} ", line[i], line[i+1]);
+							}
+							
+							Console.WriteLine("0x{0:x4}: {1} {2}", count-16, output, result);
+							line = new byte[16];
+						} 
+						
+						line[count % 16] = Convert.ToByte(idata);
+						
+						
+						count++;
+		            }
+				}
 				Console.WriteLine("");
 			} catch ( Exception e) {
 				Console.WriteLine("Exception writing data: {0} ", e.ToString());
@@ -336,7 +227,7 @@ namespace Gearman
 		/// </returns>
 		public override string ToString()
 		{
-			return string.Format("{0} packet. Data: {1} bytes, length: {2} bytes", type.ToString("g"), data.Length, this.DataLength);
+			return string.Format("{0} packet. Data: {1} bytes", type.ToString("g"), rawdata.Length);
 		}
 	}
 }
