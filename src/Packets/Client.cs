@@ -5,28 +5,41 @@ using System.Text;
 namespace Gearman.Packets.Client
 {
 
-	public class JobCreated : Packet
+	public class JobCreated : ResponsePacket
 	{
 		public string jobhandle; 
-		
+
 		public JobCreated ()
 		{
+			this.type = PacketType.JOB_CREATED;
 		}
 		
 		public JobCreated(byte[] pktdata) : base(pktdata)
 		{
 			int pOff = 0;
 			pOff = parseString(pOff, ref jobhandle);
+			this.type = PacketType.JOB_CREATED;
 		}
 		
 		public JobCreated(string jobhandle)
 		{
 			this.jobhandle = jobhandle;
 			this.size = jobhandle.Length;
+			this.type = PacketType.JOB_CREATED;
 		}
+
+		override public byte[] ToByteArray()
+		{
+			byte[] result = new byte[this.size + 12]; 
+			byte[] jhbytes = new ASCIIEncoding().GetBytes(jobhandle);
+			Array.Copy(this.Header, result, this.Header.Length);
+			Array.Copy(jhbytes, 0, result, this.Header.Length, jhbytes.Length);
+			return result;
+		}
+
 	}
 	
-	public class StatusRes : Packet 
+	public class StatusRes : ResponsePacket 
 	{
 		public string jobhandle; 
 		public bool knownstatus; 
@@ -59,7 +72,7 @@ namespace Gearman.Packets.Client
 		}
 	}
 	
-	public class GetStatus : Packet
+	public class GetStatus : RequestPacket
 	{
 		public string jobhandle;
 		

@@ -74,6 +74,17 @@ namespace Gearman
 			}
 
 		}
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="Gearman.Connection"/> class.
+		/// </summary>
+		/// <param name='s'>
+		/// S.
+		/// </param> 
+		public Connection(Socket s) 
+		{
+			conn = s;
+		}
 	
 		/// <summary>
 		/// Serialize a <see cref="Packet"/> to the network stream (just calls ToByteArray())
@@ -200,7 +211,16 @@ namespace Gearman
 					case PacketType.JOB_ASSIGN_UNIQ:
 						return new JobAssignUniq(packet);
 						
+
+					/* Server packet types */
+					case PacketType.SUBMIT_JOB:
+						return new SubmitJob(packet, false); 
+
+					case PacketType.SUBMIT_JOB_BG:
+						return new SubmitJob(packet, true); 
+
 					default: 
+						Console.WriteLine("Unhandled type: {0}", (PacketType)messagetype); 
 						return null;
 				}
 				

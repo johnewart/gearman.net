@@ -1,0 +1,4 @@
+bin
+GearmanServer/bin
+apps/LoadTest/bin
+apps/WorkerApp/bin

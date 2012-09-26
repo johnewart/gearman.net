@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LoadTest", "apps\LoadTest\L
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkerApp", "apps\WorkerApp\WorkerApp.csproj", "{DB341CF0-703D-429C-B856-860CC74BA31E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GearmanServer", "GearmanServer\GearmanServer.csproj", "{4530FC25-8A06-44F0-9614-325DD744516D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{11866579-702D-472A-8D2D-9DCF778E40FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{11866579-702D-472A-8D2D-9DCF778E40FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4530FC25-8A06-44F0-9614-325DD744516D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4530FC25-8A06-44F0-9614-325DD744516D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4530FC25-8A06-44F0-9614-325DD744516D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4530FC25-8A06-44F0-9614-325DD744516D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5E8A95C1-3A77-4EDA-AAA0-DFF57206B9C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5E8A95C1-3A77-4EDA-AAA0-DFF57206B9C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5E8A95C1-3A77-4EDA-AAA0-DFF57206B9C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -44,7 +50,7 @@ Global
 		{DB341CF0-703D-429C-B856-860CC74BA31E} = {5E0E720F-9DA6-4574-A2B6-A63D6E6FD98B}
 	EndGlobalSection
 	GlobalSection(MonoDevelopProperties) = preSolution
-		StartupItem = Gearman.csproj
+		StartupItem = GearmanServer\GearmanServer.csproj
 		Policies = $0
 		$0.TextStylePolicy = $1
 		$1.FileWidth = 120

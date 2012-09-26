@@ -5,7 +5,7 @@ using System.Text;
 namespace Gearman.Packets.Worker
 {
 	
-	public class CanDo : Packet
+	public class CanDo : RequestPacket
 	{
 		public string functionName; 
 		
@@ -26,7 +26,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class CanDoTimeout : Packet { 
+	public class CanDoTimeout : RequestPacket { 
 		public string functionName;
 		
 		public CanDoTimeout(string function)
@@ -46,7 +46,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class CantDo : Packet {
+	public class CantDo : RequestPacket {
 		public string functionName;
 		
 		public CantDo(string function)
@@ -66,7 +66,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class ResetAbilities : Packet {
+	public class ResetAbilities : RequestPacket {
 		
 		public ResetAbilities() 
 		{
@@ -75,28 +75,28 @@ namespace Gearman.Packets.Worker
 				
 	}
 	
-	public class PreSleep : Packet {
+	public class PreSleep : RequestPacket {
 		public PreSleep()
 		{
 			this.type = PacketType.PRE_SLEEP;
 		}
 	}
 	
-	public class GrabJob : Packet {
+	public class GrabJob : RequestPacket {
 		public GrabJob()
 		{
 			this.type = PacketType.GRAB_JOB;
 		}
 	}
 	
-	public class GrabJobUniq : Packet {
+	public class GrabJobUniq : RequestPacket {
 		public GrabJobUniq()
 		{
 			this.type = PacketType.GRAB_JOB_UNIQ;
 		}
 	}
 	
-	public class WorkData : Packet { 
+	public class WorkData : RequestPacket { 
 		public String jobhandle; 
 		public byte[] data; 
 		
@@ -159,7 +159,7 @@ namespace Gearman.Packets.Worker
 		
 	}		
 	
-	public class WorkFail : Packet
+	public class WorkFail : RequestPacket
 	{
 		public string jobhandle; 
 		
@@ -187,7 +187,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class WorkException : Packet
+	public class WorkException : RequestPacket
 	{
 		public string jobhandle; 
 		public byte[] exception; 
@@ -208,7 +208,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class WorkStatus : Packet 
+	public class WorkStatus : RequestPacket 
 	{
 		public string jobhandle; 
 		public int completenumerator; 
@@ -249,7 +249,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class SetClientID : Packet
+	public class SetClientID : RequestPacket
 	{
 		public string instanceid;
 		
@@ -262,7 +262,7 @@ namespace Gearman.Packets.Worker
 	
 	/* Responses */
 	
-	public class NoOp : Packet
+	public class NoOp : RequestPacket
 	{
 		public NoOp()
 		{
@@ -270,7 +270,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class NoJob : Packet 
+	public class NoJob : ResponsePacket 
 	{
 		public NoJob()
 		{
@@ -278,7 +278,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class JobAssign : Packet 
+	public class JobAssign : ResponsePacket 
 	{
 		public string jobhandle;
 		public string taskname; 
@@ -305,7 +305,7 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class JobAssignUniq : Packet 
+	public class JobAssignUniq : ResponsePacket 
 	{
 		public string jobhandle, taskname, unique_id; 
 		public byte[] data;
@@ -326,23 +326,34 @@ namespace Gearman.Packets.Worker
 		}
 	}
 	
-	public class SubmitJob : Packet
+	public class SubmitJob : RequestPacket
 	{
-		public string functionName, uniqueId; 
+		public string taskname, unique_id; 
 		public byte[] data; 
-		
+		public bool background;
 		
 		public SubmitJob()
 		{
 		
 		}
-		
-		public SubmitJob(string function, string uniqueId, byte[] data, bool background)
+
+		public SubmitJob(byte[] pktdata, bool background) : base (pktdata)
 		{
-			this.functionName = function; 
-			this.uniqueId = uniqueId; 
+			int pOff = 0;
+			
+			pOff = parseString(pOff, ref taskname);
+			pOff = parseString(pOff, ref unique_id);
+			data = pktdata.Slice(pOff, pktdata.Length);
+		
+			this.background = background; 
+		}
+
+		public SubmitJob(string function, string unique_id, byte[] data, bool background)
+		{
+			this.taskname = function; 
+			this.unique_id = unique_id; 
 			this.data = data;
-			this.size = function.Length + 1 + uniqueId.Length + 1 + data.Length;
+			this.size = function.Length + 1 + unique_id.Length + 1 + data.Length;
 			
 			if(background)
 			{
@@ -352,7 +363,7 @@ namespace Gearman.Packets.Worker
 			}
 		}
 		
-		public SubmitJob(string function, string uniqueId, byte[] data, bool background, Gearman.Client.JobPriority priority) : this(function, uniqueId, data, background)
+		public SubmitJob(string function, string unique_id, byte[] data, bool background, Gearman.Client.JobPriority priority) : this(function, unique_id, data, background)
 		{
 			
 			switch (priority)
@@ -374,12 +385,14 @@ namespace Gearman.Packets.Worker
 		override public byte[] ToByteArray()
 		{
 			byte[] result = new byte[this.size + 12]; 
-			byte[] metadata = new ASCIIEncoding().GetBytes(functionName + '\0' + uniqueId + '\0');
+			byte[] metadata = new ASCIIEncoding().GetBytes(taskname + '\0' + unique_id + '\0');
 			Array.Copy(this.Header, result, this.Header.Length);
 			Array.Copy(metadata, 0, result, this.Header.Length, metadata.Length);
 			Array.Copy(data, 0, result, Header.Length + metadata.Length, data.Length);
 			return result;
 		}
+
+
 		
 	}
 	
