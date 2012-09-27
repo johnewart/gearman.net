@@ -135,6 +135,9 @@ namespace Gearman
 				
 				ASCIIEncoding encoding = new ASCIIEncoding( );
 
+				if(rawdata == null) 
+					rawdata = this.ToByteArray(); 
+
 				if(rawdata != null)
 				{
 					while(count < this.size)

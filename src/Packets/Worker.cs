@@ -15,6 +15,12 @@ namespace Gearman.Packets.Worker
 			this.functionName = function; 
 			this.size = functionName.Length;
 		}
+
+		public CanDo(byte[] pktdata) : base(pktdata)
+		{
+			int pOff = 0;
+			pOff = parseString(pOff, ref functionName);
+		}
 		
 		override public byte[] ToByteArray()
 		{
@@ -258,6 +264,12 @@ namespace Gearman.Packets.Worker
 			this.instanceid = instanceid;
 			this.type = PacketType.SET_CLIENT_ID;
 		}
+
+		public SetClientID(byte[] pktdata) : base(pktdata)
+		{
+			int pOff = 0;
+			pOff = parseString(pOff, ref instanceid);	
+		}
 	}
 	
 	/* Responses */
@@ -294,6 +306,8 @@ namespace Gearman.Packets.Worker
 			this.jobhandle = jobhandle; 
 			this.taskname = taskname;
 			this.data = data; 
+			this.type = PacketType.JOB_ASSIGN;
+			this.size = taskname.Length + 1 + jobhandle.Length + 1 + data.Length;
 		}
 		
 		public JobAssign(byte[] pktdata) : base(pktdata)
@@ -302,6 +316,16 @@ namespace Gearman.Packets.Worker
 			pOff = parseString(pOff, ref jobhandle);
 			pOff = parseString(pOff, ref taskname);
 			data = rawdata.Slice(pOff, rawdata.Length);
+		}
+
+		override public byte[] ToByteArray()
+		{
+			byte[] result = new byte[this.size + 12]; 
+			byte[] metadata = new ASCIIEncoding().GetBytes(jobhandle + '\0' + taskname + '\0');
+			Array.Copy(this.Header, result, this.Header.Length);
+			Array.Copy(metadata, 0, result, this.Header.Length, metadata.Length);
+			Array.Copy(data, 0, result, Header.Length + metadata.Length, data.Length);
+			return result;
 		}
 	}
 	

@@ -162,66 +162,75 @@ namespace Gearman
 										
 				switch((PacketType)messagetype)
 				{
-					case PacketType.JOB_CREATED:
-						return new JobCreated(packet);
-						
-					case PacketType.WORK_DATA:
-						return new WorkData(packet);
-						
-					case PacketType.WORK_WARNING:
-						return new WorkWarning(packet);
-						
-					case PacketType.WORK_STATUS:
-						return new WorkStatus(packet);
-						
-					case PacketType.WORK_COMPLETE:
-						return new WorkComplete(packet);
-						
-					case PacketType.WORK_FAIL:
-						return new WorkFail(packet);
-						
-					case PacketType.WORK_EXCEPTION:
-						return new WorkException(packet);
-						
-					case PacketType.STATUS_RES:
-						return new StatusRes(packet);
-						
-					case PacketType.OPTION_RES:
-						// TODO Implement option response
-						break;
+				case PacketType.JOB_CREATED:
+					return new JobCreated(packet);
 					
-					/* Client and worker response packets */
-					case PacketType.ECHO_RES:
-						// TODO Implement the echo response
-						break;
-					case PacketType.ERROR:
-						// TODO Implement the error packet
-						break;
-			
-					/* Worker response packets */
-					case PacketType.NOOP:
-						return new NoOp();
-						
-					case PacketType.NO_JOB:
-						return new NoJob();
+				case PacketType.WORK_DATA:
+					return new WorkData(packet);
 					
-					case PacketType.JOB_ASSIGN:
-						return new JobAssign(packet);
-						
-					case PacketType.JOB_ASSIGN_UNIQ:
-						return new JobAssignUniq(packet);
-						
+				case PacketType.WORK_WARNING:
+					return new WorkWarning(packet);
+					
+				case PacketType.WORK_STATUS:
+					return new WorkStatus(packet);
+					
+				case PacketType.WORK_COMPLETE:
+					return new WorkComplete(packet);
+					
+				case PacketType.WORK_FAIL:
+					return new WorkFail(packet);
+					
+				case PacketType.WORK_EXCEPTION:
+					return new WorkException(packet);
+					
+				case PacketType.STATUS_RES:
+					return new StatusRes(packet);
+					
+				case PacketType.OPTION_RES:
+					// TODO Implement option response
+					break;
+				
+				/* Client and worker response packets */
+				case PacketType.ECHO_RES:
+					// TODO Implement the echo response
+					break;
+				case PacketType.ERROR:
+					// TODO Implement the error packet
+					break;
+		
+				/* Worker response packets */
+				case PacketType.NOOP:
+					return new NoOp();
+					
+				case PacketType.NO_JOB:
+					return new NoJob();
+				
+				case PacketType.JOB_ASSIGN:
+					return new JobAssign(packet);
+					
+				case PacketType.JOB_ASSIGN_UNIQ:
+					return new JobAssignUniq(packet);
 
-					/* Server packet types */
-					case PacketType.SUBMIT_JOB:
-						return new SubmitJob(packet, false); 
+				/* Worker request packets */
+				case PacketType.CAN_DO:
+					return new CanDo(packet); 
+				
+				case PacketType.SET_CLIENT_ID:
+					return new SetClientID(packet); 
 
-					case PacketType.SUBMIT_JOB_BG:
-						return new SubmitJob(packet, true); 
+				case PacketType.GRAB_JOB:
+					return new GrabJob(); 
 
-					default: 
-						Console.WriteLine("Unhandled type: {0}", (PacketType)messagetype); 
-						return null;
+				/* Client request packets */
+				case PacketType.SUBMIT_JOB:
+					return new SubmitJob(packet, false); 
+
+				case PacketType.SUBMIT_JOB_BG:
+					return new SubmitJob(packet, true); 
+
+				default: 
+					Console.WriteLine("Unhandled type: {0}", (PacketType)messagetype); 
+					return null;
 				}
 				
 			} catch (Exception e) { 

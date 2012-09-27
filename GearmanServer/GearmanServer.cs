@@ -8,7 +8,8 @@ namespace GearmanServer
 	using System.Configuration;
 	using System.Collections.Specialized;
 
-	
+	using SQLite; 
+
 	using log4net; 
 	using log4net.Config; 
 
@@ -20,7 +21,10 @@ namespace GearmanServer
 		static void Main ()
 		{
 			Log.Info("Starting .NET Gearman Server v0.5");
-			new Daemon(); 
+			var db = new SQLiteConnection("foofoo");
+			db.CreateTable<Job>();
+
+			new Daemon(db); 
 		}
 	}
 }
