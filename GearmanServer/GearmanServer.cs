@@ -8,10 +8,12 @@ namespace GearmanServer
 	using System.Configuration;
 	using System.Collections.Specialized;
 
-	using SQLite; 
+	using ServiceStack.Redis; 
 
 	using log4net; 
-	using log4net.Config; 
+	using log4net.Config;
+    using System.Net;
+    using DurableQueues; 
 
 	public class GearmanServer
 	{
@@ -20,11 +22,13 @@ namespace GearmanServer
 
 		static void Main ()
 		{
-			Log.Info("Starting .NET Gearman Server v0.5");
-			var db = new SQLiteConnection("foofoo");
-			db.CreateTable<Job>();
-
-			new Daemon(db); 
+            String hostName = Dns.GetHostName();
+			Log.Info("Starting .NET Gearman Server v0.5 on host " + hostName);
+            var redisClient = new RedisClient("mort.local");
+            var redisQueue = new RedisQueue(redisClient); 
+            //var jobQueue = new JobQueue(redisQueue);
+			var jobQueue = new JobQueue();
+			new Daemon(jobQueue, hostName); 
 		}
 	}
 }

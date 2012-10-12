@@ -274,7 +274,7 @@ namespace Gearman.Packets.Worker
 	
 	/* Responses */
 	
-	public class NoOp : RequestPacket
+	public class NoOp : ResponsePacket
 	{
 		public NoOp()
 		{
@@ -349,27 +349,36 @@ namespace Gearman.Packets.Worker
 			data = pktdata.Slice(pOff, pktdata.Length);
 		}
 	}
-	
+
 	public class SubmitJob : RequestPacket
 	{
-		public string taskname, unique_id; 
+		public string taskname, unique_id, epochstring; 
 		public byte[] data; 
 		public bool background;
-		
+      
 		public SubmitJob()
 		{
 		
 		}
 
-		public SubmitJob(byte[] pktdata, bool background) : base (pktdata)
+		public SubmitJob(byte[] pktdata) : base (pktdata)
 		{
 			int pOff = 0;
 			
 			pOff = parseString(pOff, ref taskname);
 			pOff = parseString(pOff, ref unique_id);
-			data = pktdata.Slice(pOff, pktdata.Length);
-		
-			this.background = background; 
+
+            if (this.type == PacketType.SUBMIT_JOB_EPOCH)
+            {
+                pOff = parseString(pOff, ref epochstring);
+            }
+
+            if (this.type == PacketType.SUBMIT_JOB_HIGH_BG || this.type == PacketType.SUBMIT_JOB_LOW_BG || this.type == PacketType.SUBMIT_JOB_BG)
+            {
+                this.background = true;
+            }
+
+			data = pktdata.Slice(pOff, pktdata.Length); 
 		}
 
 		public SubmitJob(string function, string unique_id, byte[] data, bool background)
@@ -405,7 +414,24 @@ namespace Gearman.Packets.Worker
 					break;
 			}
 		}
-		
+
+        public DateTime when
+        {
+            get
+            {
+                try
+                {
+                    var unixepoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    return unixepoch.AddSeconds(Convert.ToInt64(epochstring));
+                }
+                catch (Exception e)
+                {
+                    return new DateTime(0);
+                }
+            }
+        }
+
+
 		override public byte[] ToByteArray()
 		{
 			byte[] result = new byte[this.size + 12]; 
@@ -415,9 +441,10 @@ namespace Gearman.Packets.Worker
 			Array.Copy(data, 0, result, Header.Length + metadata.Length, data.Length);
 			return result;
 		}
-
-
 		
 	}
+
+    
+
 	
 }

@@ -12,30 +12,34 @@ using System.Net.Mail;
 using System.Net.Security; 
 using System.Security.Authentication; 
 
-using SQLite; 
+using ServiceStack.Redis; 
 
 using Gearman; 
 using Gearman.Packets.Client; 
-using Gearman.Packets.Worker; 
+using Gearman.Packets.Worker;
+using ServiceStack.Redis.Generic;
+using System.Collections.Concurrent; 
 
 namespace GearmanServer {
 	
 	public class Daemon {
 
 		System.Net.Sockets.TcpListener TCPServer;
+        ConcurrentDictionary<string, List<Gearman.Connection>> workers; 
 
-		public Daemon(SQLiteConnection db) {
+		public Daemon(JobQueue queue, string hostName) {
 
 			GearmanServer.Log.Info("Server listening on port 4730");
 			
-			TCPServer = new System.Net.Sockets.TcpListener(4730); 
+			TCPServer = new System.Net.Sockets.TcpListener(4730);
+            workers = new ConcurrentDictionary<string, List<Connection>>(); 
 
 			while(true) { 
 				TCPServer.Start(); 
 
 				if(TCPServer.Pending()) { 
 					try {
-						new ConnectionHandler(TCPServer.AcceptTcpClient(), db); 
+                        new ConnectionHandler(TCPServer.AcceptTcpClient(), queue, hostName, workers); 
 					} catch (Exception e) {
 						GearmanServer.Log.Error("Exception waiting for connection: ", e);
 					}
@@ -54,16 +58,20 @@ namespace GearmanServer {
 		private TcpClient client; 
 		private Gearman.Connection conn; 
 		private NetworkStream stream;
-		private SQLiteConnection db; 
-		private int jobid = 1; 
-		private List<string> abilities; 
+        private JobQueue queue;
+        private string hostName;
+        private ConcurrentDictionary<string, List<Gearman.Connection>> workers; 
+        private List<string> abilities;
 
-		public ConnectionHandler(TcpClient c, SQLiteConnection _db)
+        public ConnectionHandler(TcpClient c, JobQueue _queue, string _hostName, ConcurrentDictionary<string, List<Gearman.Connection>> _workers)
 		{
 			try {
+                hostName = _hostName;
 				abilities = new List<string>(); 
-				db = _db; 
-				client = c;
+				queue = _queue;
+                workers = _workers; 
+
+                client = c;
 				conn = new Gearman.Connection(c.Client);
 
 				IPAddress remoteIP = ((IPEndPoint)c.Client.RemoteEndPoint).Address;
@@ -78,69 +86,61 @@ namespace GearmanServer {
 			
 		}
 
-		private void handleJobSubmitted(Packet p)
+		private void handleJobSubmitted(Packet p, JobPriority priority, bool background)
 		{
-			string jobhandle = String.Format("FOONARF:{0}", jobid);
+            Guid jobid = Guid.NewGuid();
+			string jobhandle = String.Format("{0}:{1}", hostName, jobid);
 
 			SubmitJob sj = (SubmitJob)p;
-
-			var job = new Job() {
+            
+            var job = new Job() {
 				TaskName = sj.taskname,
 				JobHandle = jobhandle, 
 				Unique = sj.unique_id, 
-				When = DateTime.Now, 
-				Priority = 0, 
+				When = sj.when, 
+				Priority = (int)priority, 
 				Data = sj.data, 
-				Dispatched = false
-			};
-			
-			int newRecords = db.Insert(job);
+				Dispatched = false,
+            };
+
+            bool success = queue.storeJob(job, true);
 			
 			Console.WriteLine("{0} == {1}", job.JobHandle, job.Id);
-			GearmanServer.Log.Info ("Background job was submitted!");
+			GearmanServer.Log.Info ("Job was submitted!");
 			conn.sendPacket(new JobCreated(jobhandle));
-			jobid++; 
+
+            if(sj.when <= DateTime.UtcNow && workers.ContainsKey(sj.taskname))
+            {
+                foreach (Gearman.Connection c in workers[sj.taskname])
+                {
+                    c.sendPacket(new NoOp());
+                }
+            }
 		}
 
 		private void handleJobCompletion(Packet p)
 		{
-			WorkComplete wc = ((WorkComplete)p); 
-			var result = (
-				from j in db.Table<Job>()
-				where j.JobHandle == wc.jobhandle
-				select j
-				); 
-			var job = result.First();
-			db.Delete (job); 
-
+			WorkComplete wc = ((WorkComplete)p);
+            queue.finishedJob(wc.jobhandle);
 		}
 
 		private void grabNextJob()
 		{
 			foreach (var ability in abilities)
 			{
-				GearmanServer.Log.Info(string.Format("Trying to find job for {0}", ability)); 
-				int Priority = 0; 
-				DateTime now = DateTime.Now; 
+				GearmanServer.Log.Info(string.Format("Trying to find job for {0}", ability));
+                Job job = queue.getJobForQueue(ability);
 
-				var result = (
-					from j in db.Table<Job>() 
-					where j.When <= now &&
-					      j.TaskName == ability && 
-					  	  j.Priority == Priority && 
-						  j.Dispatched == false
-					select j
-				);
-			
-				if (result.Count() > 0) 
+				if (job != null) 
 				{
 					GearmanServer.Log.Info (string.Format("Found job for ability {0}", ability));
-					var job = result.First(); 
 					JobAssign ja = new JobAssign(job.JobHandle, job.TaskName, job.Data);
 					ja.Dump (); 
 					conn.sendPacket (ja);
 					return;
-				}
+				} else {
+                    conn.sendPacket(new NoJob());
+                }
 			}
 		}
 
@@ -148,7 +148,14 @@ namespace GearmanServer {
 		{
 			CanDo pkt = ((CanDo)p); 
 			if(!abilities.Contains(pkt.functionName)) 
-				abilities.Add(pkt.functionName); 
+				abilities.Add(pkt.functionName);
+
+            if (!workers.ContainsKey(pkt.functionName))
+            {
+                workers[pkt.functionName] = new List<Gearman.Connection>();
+            }
+
+            workers[pkt.functionName].Add(this.conn);
 		}
 		
 		
@@ -167,23 +174,30 @@ namespace GearmanServer {
 					switch(p.Type)
 					{
 					case PacketType.SUBMIT_JOB:
-						handleJobSubmitted(p);
+						handleJobSubmitted(p, JobPriority.NORMAL, false);
 						break; 
 
 					case PacketType.SUBMIT_JOB_HIGH:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.HIGH, false);
+						break;
 					case PacketType.SUBMIT_JOB_LOW:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.LOW, false);
+						break;
 					case PacketType.SUBMIT_JOB_BG:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.NORMAL, true);
+						break;
 					case PacketType.SUBMIT_JOB_HIGH_BG:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.HIGH, true);
+						break;
 					case PacketType.SUBMIT_JOB_LOW_BG:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.LOW, true);
+						break;
 					case PacketType.SUBMIT_JOB_EPOCH:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.NORMAL, true);
+						break;
 					case PacketType.SUBMIT_JOB_SCHED:
-						goto case PacketType.SUBMIT_JOB;
+						handleJobSubmitted(p, JobPriority.NORMAL, true);
+						break;
 					
 					case PacketType.GRAB_JOB:
 						p.Dump ();
@@ -203,6 +217,19 @@ namespace GearmanServer {
 						handleJobCompletion(p); 
 						break; 
 
+                    case PacketType.WORK_FAIL:
+                        handleJobCompletion(p);
+                        break; 
+
+                    case PacketType.WORK_EXCEPTION:
+                        handleJobCompletion(p);
+                        break; 
+                    
+                    case PacketType.PRE_SLEEP:
+                        p.Dump();
+                        GearmanServer.Log.Debug("Worker sleeping...");
+                        break;
+
 					default: 
 						GearmanServer.Log.Info ("Nothing to do with this...");
 						break;
@@ -215,7 +242,12 @@ namespace GearmanServer {
 				}
 			}
 
-			GearmanServer.Log.Info("ConnectionHandler terminated.");						
+			GearmanServer.Log.Info("ConnectionHandler terminated.");
+            foreach (String funcName in workers.Keys)
+            {
+                GearmanServer.Log.Info("Removing connection from worker list"); 
+                workers[funcName].Remove(this.conn); 
+            }
 		}
 
 	}//end of class ConnectionHandler 

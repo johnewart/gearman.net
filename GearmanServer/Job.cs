@@ -1,20 +1,23 @@
 using System;
-using SQLite; 
+using System.Collections.Generic; 
+using System.Collections;
 
 namespace GearmanServer
 {
+    public enum JobPriority {
+        LOW = 0,				
+        NORMAL,					
+        HIGH
+    };
+
 	public class Job
 	{
-		[PrimaryKey, AutoIncrement]
-		public int Id { get; set; }
+		public long Id { get; set; }
 
-		[MaxLength(128)]
 		public string Unique { get; set; }
 
-		[MaxLength(128)]
 		public string TaskName { get; set; }
 
-		[MaxLength(128)]
 		public string JobHandle { get; set; }
 
 		public byte[] Data { get; set; }

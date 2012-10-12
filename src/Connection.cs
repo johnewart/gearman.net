@@ -219,14 +219,20 @@ namespace Gearman
 					return new SetClientID(packet); 
 
 				case PacketType.GRAB_JOB:
-					return new GrabJob(); 
+					return new GrabJob();
+ 
+                case PacketType.PRE_SLEEP:
+                    return new PreSleep();
 
 				/* Client request packets */
 				case PacketType.SUBMIT_JOB:
-					return new SubmitJob(packet, false); 
+					return new SubmitJob(packet); 
 
 				case PacketType.SUBMIT_JOB_BG:
-					return new SubmitJob(packet, true); 
+					return new SubmitJob(packet); 
+
+                case PacketType.SUBMIT_JOB_EPOCH:
+                    return new SubmitJob(packet); 
 
 				default: 
 					Console.WriteLine("Unhandled type: {0}", (PacketType)messagetype); 
