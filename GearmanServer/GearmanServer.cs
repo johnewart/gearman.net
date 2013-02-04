@@ -24,10 +24,10 @@ namespace GearmanServer
 		{
             String hostName = Dns.GetHostName();
 			Log.Info("Starting .NET Gearman Server v0.5 on host " + hostName);
-            var redisClient = new RedisClient("mort.local");
+            var redisClient = new RedisClient("localhost");
             var redisQueue = new RedisQueue(redisClient); 
-            //var jobQueue = new JobQueue(redisQueue);
-			var jobQueue = new JobQueue();
+            var jobQueue = new JobQueue(redisQueue);
+			//var jobQueue = new JobQueue();
 			new Daemon(jobQueue, hostName); 
 		}
 	}
